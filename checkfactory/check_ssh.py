@@ -1,43 +1,44 @@
+import prometheus_client
+from prometheus_client import Counter, Gauge
+from prometheus_client.core import CollectorRegistry
+from flask import Response, Flask
 import paramiko
 import threading
 import datetime
 import time
+import random
 from multiprocessing.dummy import Pool as ThreadPool
 
-# hosts = ['10.17.110.100', '10.47.1.110', '10.70.100.30', '10.12.3.17', '10.15.1.156', '10.68.2.30', '10.37.100.50',
-#          '10.21.1.60', '10.63.102.90', '10.33.8.2', '10.10.153.253', '10.64.1.206', '10.9.100.91', '10.1.9.45']
-hosts = []
-with open("host.txt") as host:
-    host1 = host.read().replace("\n", "','")
-    hosts.append(host1)
+app = Flask(__name__)
+with open('host.txt', 'r', encoding='UTF-8') as f:
+    class_names = f.readlines()
+hosts = [c.strip() for c in class_names]
+print("远程主机为：%s \n" % hosts)
 
+# 返回多个metrics,定义一个仓库，存放数据
+REGISTRY = CollectorRegistry(auto_describe=False)
 ssh = paramiko.SSHClient()
-
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-
-# 连接服务器
-
-# for i in hosts:
-#     try:
-#         ssh.connect(hostname=i, port=9022, username='inssa', password='fz40t:oNQj', timeout=2)
-#     except Exception as e:
-#         print("%s connect refuse===" % i)
 
 
 def check_ssh(item):
     now_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S ")
+    cmd = "echo 【%s】 login from prometheus >>/home/inssa/login.txt" % now_time
+    aaa = Gauge("H" + str(item).replace(".", "_"), "ssh stats is:", registry=REGISTRY)
     try:
         ssh.connect(hostname=item, port=9022, username='inssa', password='fz40t:oNQj', timeout=2)
+        stdout = ssh.exec_command(cmd)
+        ssh.close()
         print("%s ssh登录成功" % item)
+
         with open("ok.txt", 'a') as ok:
             ok.write("【%s】host %s ok\n" % (now_time, item))
-
+        aaa.set(1)
     except Exception as e:
         with open("fail.txt", 'a') as ok:
             ok.write("【%s】host %s failed\n" % (now_time, item))
-        print("%s ssh登录失败，失败原因：" % item, e)
-    # time.sleep(3)
+        print("%s ssh登录失败，失败原因：%s" % (item, e))
+        aaa.set(0)
 
 
 pool = ThreadPool()
@@ -45,16 +46,16 @@ pool.map(check_ssh, hosts)
 pool.close()
 pool.join()
 
-# ssh.connect(hostname='192.168.1.96', port=9022, username='inssa', password='fz40t:oNQj')
+
+# @app.route("/metrics")
+# def ApiResponse():
+#     print("REGISTRY", REGISTRY)
+#     pool = ThreadPool()
+#     pool.map(check_ssh, hosts)
+#     pool.close()
+#     pool.join()
+#     return Response(prometheus_client.generate_latest(REGISTRY), mimetype="text/plain")
 #
-# cmd = 'ps'
-# # cmd = 'ls -l;ifconfig'       #多个命令用;隔开
-# stdin, stdout, stderr = ssh.exec_command(cmd)
 #
-# result = stdout.read()
-#
-# if not result:
-#     result = stderr.read()
-# ssh.close()
-#
-# print(result.decode())
+# if __name__ == "__main__":
+#     app.run(host="0.0.0.0", debug=True, port=9000)
